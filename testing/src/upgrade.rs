@@ -26,48 +26,101 @@ pub struct MockMigrationHook;
 impl MockMigrationHook {
     /// Initialize the hook with configurable approval behaviour.
     pub fn initialize(env: Env, admin: Address, approve: bool) {
-        env.storage().instance().set(&b"admin", &admin);
-        env.storage().instance().set(&b"approve", &approve);
-        env.storage().instance().set(&b"pre_count", &0u32);
-        env.storage().instance().set(&b"post_count", &0u32);
-        env.storage().instance().set(&b"last_old", &0u32);
-        env.storage().instance().set(&b"last_new", &0u32);
+        env.storage().instance().set(&symbol_short!("admin"), &admin);
+        env.storage().instance().set(&symbol_short!("approve"), &approve);
+        env.storage().instance().set(&symbol_short!("compat"), &true);
+        env.storage().instance().set(&symbol_short!("pre_cnt"), &0u32);
+        env.storage().instance().set(&symbol_short!("pst_cnt"), &0u32);
+        env.storage().instance().set(&symbol_short!("val_cnt"), &0u32);
+        env.storage().instance().set(&symbol_short!("validate"), &true);
+        env.storage().instance().set(&symbol_short!("val_post_cnt"), &0u32);
+        env.storage().instance().set(&symbol_short!("last_old"), &0u32);
+        env.storage().instance().set(&symbol_short!("last_new"), &0u32);
+    }
+
+    /// Set storage compatibility mode for validate_storage.
+    pub fn set_storage_compatible(env: Env, compatible: bool) {
+        env.storage().instance().set(&symbol_short!("compat"), &compatible);
+    }
+
+    /// Storage validation dry-run hook.
+    ///
+    /// Validates storage layout compatibility and protocol invariants (e.g. balances equal reserves).
+    pub fn validate_storage(env: Env, target: Address) -> Result<(), shared::errors::Error> {
+        let compatible: bool = env.storage().instance().get(&symbol_short!("compat")).unwrap_or(true);
+        if !compatible {
+            return Err(shared::errors::Error::InvalidArgument);
+        }
+        let mut count: u32 = env.storage().instance().get(&symbol_short!("val_cnt")).unwrap_or(0);
+        count += 1;
+        env.storage().instance().set(&symbol_short!("val_cnt"), &count);
+        env.storage().instance().set(&symbol_short!("target"), &target);
+        Ok(())
     }
 
     /// Pre-upgrade hook. Returns `true` if the upgrade is approved.
     pub fn pre_upg(env: Env, old_version: u32, new_version: u32) -> bool {
-        let approve: bool = env.storage().instance().get(&b"approve").unwrap();
-        let mut count: u32 = env.storage().instance().get(&b"pre_count").unwrap_or(0);
+        let approve: bool = env.storage().instance().get(&symbol_short!("approve")).unwrap();
+        let mut count: u32 = env.storage().instance().get(&symbol_short!("pre_cnt")).unwrap_or(0);
         count += 1;
-        env.storage().instance().set(&b"pre_count", &count);
-        env.storage().instance().set(&b"last_old", &old_version);
-        env.storage().instance().set(&b"last_new", &new_version);
+        env.storage().instance().set(&symbol_short!("pre_cnt"), &count);
+        env.storage().instance().set(&symbol_short!("last_old"), &old_version);
+        env.storage().instance().set(&symbol_short!("last_new"), &new_version);
         approve
     }
 
     /// Post-upgrade hook. Always succeeds.
     pub fn pst_upg(env: Env, old_version: u32, new_version: u32) {
-        let mut count: u32 = env.storage().instance().get(&b"post_count").unwrap_or(0);
+        let mut count: u32 = env.storage().instance().get(&symbol_short!("pst_cnt")).unwrap_or(0);
         count += 1;
-        env.storage().instance().set(&b"post_count", &count);
-        env.storage().instance().set(&b"last_old", &old_version);
-        env.storage().instance().set(&b"last_new", &new_version);
+        env.storage().instance().set(&symbol_short!("pst_cnt"), &count);
+        env.storage().instance().set(&symbol_short!("last_old"), &old_version);
+        env.storage().instance().set(&symbol_short!("last_new"), &new_version);
+    }
+
+    /// Post-upgrade validation hook. Can be configured to fail.
+    pub fn validate_post_upgrade(env: Env, old_version: u32, new_version: u32) -> Result<(), shared::errors::Error> {
+        let validate: bool = env.storage().instance().get(&symbol_short!("validate")).unwrap_or(true);
+        if !validate {
+            return Err(shared::errors::Error::InvalidArgument);
+        }
+        let mut count: u32 = env.storage().instance().get(&symbol_short!("val_post_cnt")).unwrap_or(0);
+        count += 1;
+        env.storage().instance().set(&symbol_short!("val_post_cnt"), &count);
+        env.storage().instance().set(&symbol_short!("last_old"), &old_version);
+        env.storage().instance().set(&symbol_short!("last_new"), &new_version);
+        Ok(())
+    }
+
+    /// Set whether post-upgrade validation should succeed.
+    pub fn set_validate_post_upgrade(env: Env, validate: bool) {
+        env.storage().instance().set(&symbol_short!("validate"), &validate);
+    }
+
+    /// Returns how many times `validate_post_upgrade` was called.
+    pub fn validate_post_call_count(env: Env) -> u32 {
+        env.storage().instance().get(&symbol_short!("val_post_cnt")).unwrap_or(0)
+    }
+
+    /// Returns how many times `validate_storage` was called.
+    pub fn val_call_count(env: Env) -> u32 {
+        env.storage().instance().get(&symbol_short!("val_cnt")).unwrap_or(0)
     }
 
     /// Returns how many times `pre_upg` was called.
     pub fn pre_call_count(env: Env) -> u32 {
-        env.storage().instance().get(&b"pre_count").unwrap_or(0)
+        env.storage().instance().get(&symbol_short!("pre_cnt")).unwrap_or(0)
     }
 
     /// Returns how many times `pst_upg` was called.
     pub fn post_call_count(env: Env) -> u32 {
-        env.storage().instance().get(&b"post_count").unwrap_or(0)
+        env.storage().instance().get(&symbol_short!("pst_cnt")).unwrap_or(0)
     }
 
     /// Returns the last (old_version, new_version) seen by either hook.
     pub fn last_versions(env: Env) -> (u32, u32) {
-        let old: u32 = env.storage().instance().get(&b"last_old").unwrap_or(0);
-        let new: u32 = env.storage().instance().get(&b"last_new").unwrap_or(0);
+        let old: u32 = env.storage().instance().get(&symbol_short!("last_old")).unwrap_or(0);
+        let new: u32 = env.storage().instance().get(&symbol_short!("last_new")).unwrap_or(0);
         (old, new)
     }
 }
@@ -369,5 +422,103 @@ mod tests {
         );
         assert_eq!(pre_count, 1);
         assert_eq!(post_count, 1);
+    }
+
+    #[test]
+    fn harness_rejects_incompatible_storage_layout() {
+        let mut harness = UpgradeTestHarness::new();
+
+        // Setup migration hook that rejects storage compatibility (simulating breaking schema).
+        let hook_addr = harness.setup_migration_hook(true);
+        let hook_client = MockMigrationHookClient::new(&harness.env, &hook_addr);
+        hook_client.set_storage_compatible(&false);
+
+        // Register a contract.
+        let contract_id = Address::generate(&harness.env);
+        harness.register_contract(
+            &contract_id,
+            symbol_short!("aid"),
+            1,
+            fake_wasm_hash(1),
+        );
+
+        // Set migration hook.
+        harness.set_migration_hook(&contract_id, &hook_addr);
+
+        // Propose upgrade — must fail dry-run validation because storage is incompatible!
+        let note = soroban_sdk::String::from_str(&harness.env, "v2 with breaking schema");
+        let result = harness.env.try_invoke_contract::<u64, upgradeability::UpgradeError>(
+            &harness.upgradeability_addr,
+            &Symbol::new(&harness.env, "propose_upgrade"),
+            soroban_sdk::Vec::from_array(
+                &harness.env,
+                [
+                    harness.upgrader.clone().into_val(&harness.env),
+                    contract_id.clone().into_val(&harness.env),
+                    fake_wasm_hash(2).into_val(&harness.env),
+                    2u32.into_val(&harness.env),
+                    note.into_val(&harness.env),
+                ],
+            ),
+        );
+
+        assert_eq!(result, Err(Ok(upgradeability::UpgradeError::StorageIncompatible)));
+    }
+
+    #[test]
+    fn failed_post_upgrade_validation_triggers_rollback() {
+        let mut harness = UpgradeTestHarness::new();
+
+        // Setup migration hook that approves but will fail post-upgrade validation.
+        let hook_addr = harness.setup_migration_hook(true);
+        let hook_client = MockMigrationHookClient::new(&harness.env, &hook_addr);
+        hook_client.set_validate_post_upgrade(&false);
+
+        // Register a contract.
+        let contract_id = Address::generate(&harness.env);
+        harness.register_contract(
+            &contract_id,
+            symbol_short!("treasury"),
+            1,
+            fake_wasm_hash(1),
+        );
+
+        // Set migration hook.
+        harness.set_migration_hook(&contract_id, &hook_addr);
+
+        // Propose upgrade.
+        let pid = harness.propose_upgrade(&contract_id, fake_wasm_hash(2), 2, "v2 with validation");
+
+        // Execute upgrade - should fail validation and trigger rollback.
+        let result = harness.env.try_invoke_contract::<(), upgradeability::UpgradeError>(
+            &harness.upgradeability_addr,
+            &Symbol::new(&harness.env, "execute_upgrade"),
+            soroban_sdk::Vec::from_array(
+                &harness.env,
+                [
+                    harness.upgrader.clone().into_val(&harness.env),
+                    pid.into_val(&harness.env),
+                ],
+            ),
+        );
+
+        assert_eq!(result, Err(Ok(upgradeability::UpgradeError::PostUpgradeValidationFailed)));
+
+        // Verify rollback occurred - version should be reverted.
+        let version: u32 = harness.env.invoke_contract(
+            &harness.upgradeability_addr,
+            &Symbol::new(&harness.env, "get_version"),
+            (contract_id.clone(),),
+        );
+        assert_eq!(version, 1); // Should be back to version 1
+
+        // Verify rollback info indicates rollback occurred.
+        let rollback_info: upgradeability::RollbackInfo = harness.env.invoke_contract(
+            &harness.upgradeability_addr,
+            &Symbol::new(&harness.env, "get_rollback_info"),
+            (contract_id.clone(),),
+        );
+        assert!(!rollback_info.can_rollback);
+        assert!(rollback_info.rollback_timestamp > 0);
     }
 }
